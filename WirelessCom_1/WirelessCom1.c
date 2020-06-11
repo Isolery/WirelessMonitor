@@ -48,7 +48,7 @@ uint8_t DecodeProtocol(uint8_t* p_rxUart0, uint8_t* p_FrameData);
 * 功能说明：c程序入口
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 int main(void)
 {
 	SystemInit();
@@ -56,16 +56,12 @@ int main(void)
 	
 	while(1)
 	{
-		//USART0_TransmitByte(0xAA);
-		//MPCM_USART0_TransmitByte(0xAA, 0xC1);
-		//_delay_ms(100);
 		if(flag_NewData)    //串口有新数据到来
 		{
 			//USART1_TransmitFrame(rxUart0);    //test used
 			if(DecodeProtocol(rxUart0, FrameData))    //对数据进行帧校验
 			{
 				DealFrameData(FrameData);    //开始处理数据
-				//USART0_TransmitFrame(FrameData);
 			}
 			else
 			{

@@ -5,8 +5,11 @@
 #include "predefine.h"
 #include "usart.h"
 #include "crc16.h"
+#include <util/twi.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
+
+#define SLAVERADDR    0xA0
 
 #define UART1_EN         UCSR1B|= (1<< RXEN1)
 #define UART1_DEN       UCSR1B&=~(1<< RXEN1)
@@ -52,7 +55,9 @@ uint8_t EpcData[12] = {0xBB,0xE1,0x0,0x0,0x0,0x0,0x02,0x51,0x32,0x44,0x02,0x53};
 uint8_t storeFdirYGD[13];              //存储正向预告点1                      
 uint8_t storeFdirYGD2[13];            //存储正向预告点2                       
 uint8_t storeRedirDD[13];             //存储反向定点                         
-uint8_t storeLastportdata[13];       //存储上次上报的定点数据        
+uint8_t storeLastportdata[13];       //存储上次上报的定点数据     
+
+uint8_t test[] = {0xAA, 0x11, 0x0C, 0xBB, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x02, 0x52, 0x32, 0x44, 0x02, 0x53, 0xE5, 0x2D};   
 
 
 /*函数声明区*/
@@ -80,17 +85,19 @@ int main(void)
 	SystemInit(); 
 	while(1)
 	{
-		if(flag_RxFinish)    //串口有新数据到来
-		{
-			UART0_DEN;
-				
-			Deal_RLM_Data();	
-				
-			flag_RxFinish = FALSE;
-			UART0_EN;
-		}
-		Time_up_Clear();    //定时清0存储的数据
-		Led_Display(ledType);    //点亮LED灯，只在有线信号时有用 
+		MPCM_USART0_TransmitFrame(test, 0xC1);
+		_delay_ms(100);
+		//if(flag_RxFinish)    //串口有新数据到来
+		//{
+			//UART0_DEN;
+				//
+			//Deal_RLM_Data();	
+				//
+			//flag_RxFinish = FALSE;
+			//UART0_EN;
+		//}
+		//Time_up_Clear();    //定时清0存储的数据
+		//Led_Display(ledType);    //点亮LED灯，只在有线信号时有用 
 	}
 	return 0;
 }
@@ -199,24 +206,6 @@ ISR(USART1_RX_vect)
 }  
 
 /**********************************************************************************************
-* 函 数 名  ：Time3_Init
-* 功能说明：定时器3初始化 TCNTn = 65536 - (FOSC/Prescaler)*Timing(s) 
-* 输入参数：void
-* 返 回 值 ：void
-**********************************************************************************************/
-void Timer3_Init(void)
-{
-    ETIFR=0;    //定时器3的中断标志寄存器清零
-		
-	/*65536-(11059200/64)*0.002=65190=FEA6*/
-    TCNT3H = 0xFE;   
-    TCNT3L = 0xA6;    
-	                                                                           
-    TCCR3B|=(1<<CS31)|(1<<CS30);   //64分频
-	 ETIMSK=(1<<TOIE3);    //定时器3溢出中断使能
-}
-
-/**********************************************************************************************
 * 函 数 名  ：Timer3_ovf_Interrupt
 * 功能说明：定时器3溢出中断函数
 * 输入参数：void
@@ -234,6 +223,75 @@ ISR(TIMER3_OVF_vect)
 	if(clearFlag_Forward_DD == BEGIN) tCountFD++;
 	    
 	if(clearFlag_Rear_DD == BEGIN) tCountRD++;
+}
+
+/******************************************************************************************
+* 功能说明：TWI中断函数，MT模式
+* 输入参数：void
+* 返 回 值 ：void
+******************************************************************************************/
+ISR(TWI_vect)
+{
+	uint8_t i = 0;
+	switch(TW_STATUS)
+	{
+		case TW_START:    //START已发送
+		{
+			/* 加载SLA+W */
+			TWDR = SLAVERADDR;
+			TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));     //写1清除TWINT标志位，启动TWI工作
+			break;
+		}
+		case TW_REP_START:    //RESTART已发送
+		{
+			/* 加载SLA+W */
+			TWDR = SLAVERADDR;
+			TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));     //写1清除TWINT标志位，启动TWI工作
+			break;
+		}
+		case TW_MT_SLA_ACK:    //SLA+W已发送且接收到ACK
+		{
+			/* 加载数据 */
+			TWDR = FrameData[0];
+			TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));    //写1清除TWINT标志位，启动TWI工作
+			break;
+		}
+		case TW_MT_SLA_NACK:    //SLA+W已发送且接收到NACK
+		{
+			/* RESTART */
+			TWCR = ((1<<TWSTA)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));
+			break;
+		}
+		case TW_MT_DATA_ACK:    //数据已发送且接收到ACK
+		{
+			/* STOP */
+			//TWCR = ((1<<TWSTO)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送STOP
+			for(i=1; i<17; i++)
+			{
+				TWDR = FrameData[i];
+				//_delay_ms(100);
+				TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));     //写1清除TWINT标志位，启动TWI工作
+				while (!(TWCR & (1<<TWINT)));    //TWINT置位表示接收到从机的ACK，因此可以不用跳出中断继续执行for循环
+			}
+			TWCR = ((1<<TWSTO)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送STOP
+			//TWCR = ((1<<TWSTA)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送START
+			break;
+		}
+		case TW_MT_DATA_NACK:    //数据已发送且接收到NACK
+		{
+			/* RESTART */
+			TWCR = ((1<<TWSTA)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));
+			break;
+		}
+		case TW_MT_ARB_LOST:    //SLA+W或数据的仲裁失败
+		{
+			/* 自动进入从机模式 */
+			//TWCR = ((1<<TWSTA)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));
+			break;
+		}
+		
+		default: break;
+	}
 }
 /**********************************************************************************************
 * 函 数 名 ：DealRxData
@@ -479,27 +537,27 @@ void Time_up_Clear(void)
 *********************************************************************************************/
 void ProcessTransmit(const uint8_t* p_EpcData)
 {
-	if(p_EpcData[1] == 0xE1)    //有线
+	if(p_EpcData[1] == 0xE1)    //有线，使用TWI来传输
 	{
 		ledType = p_EpcData[7];
-		FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));    //Type的定义：高位1代表CPU1 | 低位1代表主动上传消息   
-		MPCM_USART1_TransmitFrame(FrameData, 0x9B);    //发送给MsgDeal_1 --> 信息处理板
+		FrameProcess(FrameData, EpcData, 0x21, sizeof(EpcData));    //Type的定义：高位1代表CPU1 | 低位1代表主动上传消息   
+		TWCR = (1<<TWSTA)|(1<<TWINT)|(1<<TWEN)|(1<<TWIE);    //TWI发送START信号，启动TWI传输
 			
 		flag_LedON = BEGIN;    //开始亮灯
 		tLedCount = 0;
 	}
 		
-	if(p_EpcData[1] == 0xE0)    //无线
+	if(p_EpcData[1] == 0xE0)    //无线，使用串口来传输
 	{
-		FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));   
-		MPCM_USART1_TransmitFrame(FrameData, 0xC2);    //发送给WirelessCom_2 --> 通信板第二个CPU
+		FrameProcess(FrameData, EpcData, 0x21, sizeof(EpcData));   
+		MPCM_USART1_TransmitFrame(FrameData, 0xC1);    //发送给WirelessCom_1 --> 通信板第一个CPU
 	}
 		
 	if(p_EpcData[1] == 0x00)    //Test
 	{
 		ledType = p_EpcData[7];
 		FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));   
-		MPCM_USART1_TransmitFrame(FrameData, 0x4B);    //test used
+		MPCM_USART1_TransmitFrame(FrameData, 0x9B);    //test used
 			
 		flag_LedON = BEGIN;    //开始亮灯
 		tLedCount = 0;
@@ -532,6 +590,37 @@ void FrameProcess(uint8_t* dstArray, const uint8_t* srcArray, uint8_t type, uint
 	*p_dstArray = (uint8_t)(checkValue);    //CRC
 }
 
+/**********************************************************************************************
+* 函 数 名  ：Time3_Init
+* 功能说明：定时器3初始化 TCNTn = 65536 - (FOSC/Prescaler)*Timing(s)
+* 输入参数：void
+* 返 回 值 ：void
+**********************************************************************************************/
+void Timer3_Init(void)
+{
+	ETIFR=0;    //定时器3的中断标志寄存器清零
+	
+	/*65536-(11059200/64)*0.002=65190=FEA6*/
+	TCNT3H = 0xFE;
+	TCNT3L = 0xA6;
+	
+	TCCR3B|=(1<<CS31)|(1<<CS30);   //64分频
+	ETIMSK=(1<<TOIE3);    //定时器3溢出中断使能
+}
+
+/******************************************************************************************
+* 函 数 名  ：TWI_Init
+* 功能说明：TWI初始化 --> 波特率、TWCR
+* 输入参数：void
+* 返 回 值 ：void
+*******************************************************************************************/
+void TWI_Init()
+{
+	TWSR = 0;    //预分频设置为0
+	TWBR = 15;    //Fscl = FOSC/(16+2·TWBR·4^TWPS)
+	TWCR = (1<<TWEN)|(1<<TWIE);    //使能TWI接口、TWI中断; 其余位清零
+}
+
 /************************************************************************************************
 * 函 数 名 ：SystemInit
 * 功能说明：系统初始化函数 串口0初始化、串口1初始化、定时器3初始化、开中断
@@ -545,8 +634,8 @@ void SystemInit(void)
 	USART0_Init(115200,0);
 	USART1_Init(115200,1);
 	Timer3_Init();
+	TWI_Init();
 	//SEI();    //该语句在studio6.2中不被识别
-	//SREG |= (1<<7);
 	sei();
 }
 
