@@ -85,19 +85,21 @@ int main(void)
 	SystemInit(); 
 	while(1)
 	{
-		MPCM_USART0_TransmitFrame(test, 0xC1);
-		_delay_ms(100);
-		//if(flag_RxFinish)    //串口有新数据到来
-		//{
-			//UART0_DEN;
-				//
-			//Deal_RLM_Data();	
-				//
-			//flag_RxFinish = FALSE;
-			//UART0_EN;
-		//}
-		//Time_up_Clear();    //定时清0存储的数据
-		//Led_Display(ledType);    //点亮LED灯，只在有线信号时有用 
+		if(flag_RxFinish)    //串口有新数据到来
+		{
+			UART0_DEN;
+			
+			Deal_RLM_Data();	
+			flag_RxFinish = FALSE;
+			
+			UART0_EN;
+		}
+		else
+		{
+			_delay_ms(100);
+		}
+		Time_up_Clear();    //定时清0存储的数据
+		Led_Display(ledType);    //点亮LED灯，只在有线信号时有用 
 	}
 	return 0;
 }
@@ -545,22 +547,14 @@ void ProcessTransmit(const uint8_t* p_EpcData)
 			
 		flag_LedON = BEGIN;    //开始亮灯
 		tLedCount = 0;
+		
+		return;
 	}
 		
 	if(p_EpcData[1] == 0xE0)    //无线，使用串口来传输
 	{
 		FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));   
 		MPCM_USART1_TransmitFrame(FrameData, 0xC1);    //发送给WirelessCom_1 --> 通信板第一个CPU
-	}
-		
-	if(p_EpcData[1] == 0x00)    //Test
-	{
-		ledType = p_EpcData[7];
-		FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));   
-		MPCM_USART1_TransmitFrame(FrameData, 0x9B);    //test used
-			
-		flag_LedON = BEGIN;    //开始亮灯
-		tLedCount = 0;
 	}
 }
 
@@ -631,6 +625,7 @@ void SystemInit(void)
 {
     DDRA=0xff;
 	PORTA=0x08;    //开始亮绿灯
+	DDRD &=~((1<<0)|(1<<1)); PORTD |= (1<<0)|(1<<1);
 	USART0_Init(115200,0);
 	USART1_Init(115200,1);
 	Timer3_Init();
