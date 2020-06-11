@@ -266,17 +266,14 @@ ISR(TWI_vect)
 		}
 		case TW_MT_DATA_ACK:    //数据已发送且接收到ACK
 		{
-			/* STOP */
-			//TWCR = ((1<<TWSTO)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送STOP
+			/* 继续发送数据 */
 			for(i=1; i<17; i++)
 			{
 				TWDR = FrameData[i];
-				//_delay_ms(100);
 				TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));     //写1清除TWINT标志位，启动TWI工作
 				while (!(TWCR & (1<<TWINT)));    //TWINT置位表示接收到从机的ACK，因此可以不用跳出中断继续执行for循环
 			}
 			TWCR = ((1<<TWSTO)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送STOP
-			//TWCR = ((1<<TWSTA)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送START
 			break;
 		}
 		case TW_MT_DATA_NACK:    //数据已发送且接收到NACK
