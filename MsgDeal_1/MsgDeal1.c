@@ -115,29 +115,6 @@ int main(void)
 	return 0;
 }
 
-/*
-int main(void)
-{
-	DDRA = 0xff;
-	TWI_Init();
-	USART1_Init(115200, 0);
-	while(1)
-	{
-		if( flag_NewData )
-		{
-			USART1_TransmitArray(TWI_Rx_Buff, sizeof(TWI_Rx_Buff));
-			memset(TWI_Rx_Buff, '\0', sizeof(TWI_Rx_Buff));
-			_delay_ms(100);
-			flag_NewData = FALSE;
-		}
-		else
-		{
-			_delay_ms(1);
-		}
-	}
-}
-*/
-
 /**********************************************************************************************
 * 功能说明：串口0中断接收函数, 与CPU1或CPU4进行通讯
 * 输入参数：void
@@ -529,7 +506,7 @@ void Led_Display(uint8_t ledType)
 		}
 		case 0x04:    //故障灯
 		{
-			;    //暂时没定义
+			PORTA=0x01;    //暂时没定义
 			if(tLedCount >= 1500)
 			{
 				Led_Slake();
