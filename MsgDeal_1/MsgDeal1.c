@@ -1,6 +1,7 @@
 #include <avr/io.h>
 #include <stdio.h>
 #include <string.h>
+#include <util/twi.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
 #include "usart.h"
@@ -19,29 +20,37 @@
 #define VALID    1
 #define INVALID 0
 
+#define ACK()     (TWCR = (1<<TWINT)|(1<<TWEA)|(1<<TWEN)|(1<<TWIE))
+#define NACK()  (TWCR = (1<<TWINT)|(1<<TWEN)|(1<<TWIE))
+
 uint8_t lastdirect;  
 uint8_t *pHandle = (uint8_t *)(0x0200);    //保存手柄方向  0x04 --> 前向  0x02 --> 后向
 uint8_t ledType = 0; 
 
 /*标志位相关变量*/
-uint8_t flag_NewData0 = FALSE;    //串口0是否接收到新数据
-uint8_t flag_NewData1 = FALSE;    //串口1是否接收到新数据
+uint8_t NewData_Uart0 = FALSE;    //串口0是否接收到新数据
+uint8_t NewData_Uart1 = FALSE;    //串口1是否接收到新数据
+uint8_t NewData_TWI = FALSE;    //是否是新数据
 uint8_t flag_LedON = END;    //是否开始点亮LED
 uint8_t CheckCorrect = FALSE;    //串口1接收的数据是否正确
 
+
 /*定时器相关变量*/
-uint32_t  tLedCount= 0;    //LED计时计数器
+uint32_t  tLedCount = 0;    //LED计时计数器
 
 /*数组定义区*/
+uint8_t rxTWI[17];      //TWI接收缓存区
 uint8_t rxUart0[20];   //串口0数据缓存区，与CPU1，CPU4进行通信
 uint8_t rxUart1[20];   //串口1数据缓存区，与监控主机进行通信
 uint8_t MonitorFrameData[20];    //保存从监控主机传过来的一帧数据
 uint8_t MCUFrameData[20];    //保存从CPU1或CPU4传过来的一帧数据
 uint8_t TransmitToMonitor[16];    //发送给监控主机
 uint8_t ReceiveFromMonitor[16];    //从监控主机接收数据
-void DealMonitorFrameData(uint8_t* pMonitorFrameData);
+
+
 
 /*函数声明区*/
+void TWI_Init();
 void GPIO_Init(void);
 void Led_Slake(void);
 void SystemInit(void);
@@ -49,6 +58,7 @@ void Timer3_Init(void);
 void Led_Display(uint8_t ledType);
 uint8_t CheckSum(uint8_t* srcArray, uint8_t len);
 uint8_t CalculateSum(uint8_t* srcArray, uint8_t len);
+void DealMonitorFrameData(uint8_t* pMonitorFrameData);
 uint8_t MCUProtocolCheck(uint8_t* prxUart0, uint8_t* pMCUFrameData);
 uint8_t MonitorProtocolCheck(uint8_t* prxUart1, uint8_t* pMonitorFrameData);
 void Prepare_Transmit(uint8_t* pTransmitToMonitor, uint8_t* pMCUFrameData);
@@ -65,7 +75,7 @@ int main(void)
 		
 	while(1)
 	{
-		if(flag_NewData0)    //串口0有新数据到来
+		if(NewData_Uart0)    //串口0有新数据到来
 		{
 			if(MCUProtocolCheck(rxUart0, MCUFrameData) == VALID)
 			{
@@ -74,27 +84,59 @@ int main(void)
 				flag_LedON = BEGIN;
 				tLedCount = 0;
 			}
-			else
+			NewData_Uart0 = FALSE;
+		}
+		
+		if(NewData_TWI)    //TWI接收到新数据
+		{
+			//USART1_TransmitArray(rxTWI, sizeof(rxTWI));
+			
+			if(MCUProtocolCheck(rxTWI, MCUFrameData) == VALID)
 			{
-				;
+				ledType = MCUFrameData[10];
+				flag_LedON = BEGIN;
+				tLedCount = 0;
 			}
-			flag_NewData0 = FALSE;
+			NewData_TWI = FALSE;
 		}
 			
-		if(flag_NewData1)    //串口1有新数据到来
+		if(NewData_Uart1)    //串口1有新数据到来
 		{
 			if(MonitorProtocolCheck(rxUart1, MonitorFrameData) == VALID)    //对监控主机的数据进行帧校验    
 			{
 				CheckCorrect = TRUE;
 				DealMonitorFrameData(MonitorFrameData);    //开始处理数据
 			}
-			flag_NewData1 = FALSE;
+			NewData_Uart1 = FALSE;
 			CheckCorrect = FALSE;			
 		}			
 		Led_Display(ledType);    //点亮LED
 	}
 	return 0;
 }
+
+/*
+int main(void)
+{
+	DDRA = 0xff;
+	TWI_Init();
+	USART1_Init(115200, 0);
+	while(1)
+	{
+		if( flag_NewData )
+		{
+			USART1_TransmitArray(TWI_Rx_Buff, sizeof(TWI_Rx_Buff));
+			memset(TWI_Rx_Buff, '\0', sizeof(TWI_Rx_Buff));
+			_delay_ms(100);
+			flag_NewData = FALSE;
+		}
+		else
+		{
+			_delay_ms(1);
+		}
+	}
+}
+*/
 
 /**********************************************************************************************
 * 功能说明：串口0中断接收函数, 与CPU1或CPU4进行通讯
@@ -123,7 +165,7 @@ ISR(USART0_RX_vect)
 	if(countRx == 17)    //一个完整的数据帧是17个字节
 	{
 		UCSR0A |= (1<<MPCM0);    //读取最后一个数据，置位MPCM等待下次被寻址
-		flag_NewData0 = TRUE;
+		NewData_Uart0 = TRUE;
 	}
 } 
 
@@ -155,26 +197,8 @@ ISR(USART1_RX_vect)
 	if(countRx == 17)
 	{
 		UCSR1A |= (1<<MPCM1);    //读取最后一个数据，置位MPCM等待下次被寻址
-		flag_NewData1 = TRUE;
+		NewData_Uart1 = TRUE;
 	}
-}
-
-/**********************************************************************************************
-* 函 数 名  ：Time3_Init
-* 功能说明：定时器3初始化 TCNTn = 65536 - (FOSC/Prescaler)*Timing(s) 
-* 输入参数：void
-* 返 回 值 ：void
-**********************************************************************************************/
-void Timer3_Init(void)
-{
-    ETIFR=0;    //定时器3的中断标志寄存器清零
-		
-	/*65536-(11059200/64)*0.002=65190=FEA6*/
-    TCNT3H = 0xFE;   
-    TCNT3L = 0xA6;    
-	                                                                           
-    TCCR3B|=(1<<CS31)|(1<<CS30);   //64分频
-	ETIMSK=(1<<TOIE3);    //定时器3溢出中断使能
 }
 
 /**********************************************************************************************
@@ -190,6 +214,80 @@ ISR(TIMER3_OVF_vect)
 	if(flag_LedON == BEGIN) tLedCount++;    //LED开始定时熄灭
 }
 
+/******************************************************************************************
+* 功能说明：TWI中断函数，SR模式
+* 输入参数：void
+* 返 回 值 ：void
+******************************************************************************************/
+ISR(TWI_vect)
+{
+	volatile static uint8_t countRx, temp;
+	switch(TW_STATUS)
+	{
+		case TW_SR_SLA_ACK:                         //被主机SLA+W寻址，返回ACK
+		case TW_SR_ARB_LOST_SLA_ACK:        //作为主机仲裁失败且SLA+W被接收，返回ACK
+		case TW_SR_GCALL_ACK:                     //接收到广播地址，返回ACK
+		case TW_SR_ARB_LOST_GCALL_ACK:    //作为主机仲裁失败且接收到广播地址，返回ACK
+		{
+			countRx = 0;
+			ACK(); break;   //返回ACK
+		}
+		
+		case TW_SR_DATA_ACK:    //被SLA+W寻址, 数据已接收, 产生ACK
+		case TW_SR_GCALL_DATA_ACK:    //被广播寻址, 数据已接收, 产生ACK
+		{
+			temp = TWDR;
+			rxTWI[countRx++] = temp;
+			if(countRx == 17)
+			{
+				NewData_TWI = TRUE;
+			}
+			ACK(); break;   //返回ACK
+		}
+		
+		case TW_SR_DATA_NACK:    //被SLA+W寻址, 数据已接收, 产生NACK
+		case TW_SR_GCALL_DATA_NACK:    //被广播寻址, 数据已接收, 产生NACK
+		NACK(); break;    //返回NACK
+		
+		case TW_SR_STOP:    //在以从机工作时接收到STOP或重复START
+		ACK(); break;    //返回ACK
+		
+		default: break;
+	}
+}
+
+/**********************************************************************************************
+* 函 数 名  ：Time3_Init
+* 功能说明：定时器3初始化 TCNTn = 65536 - (FOSC/Prescaler)*Timing(s)
+* 输入参数：void
+* 返 回 值 ：void
+**********************************************************************************************/
+void Timer3_Init(void)
+{
+	ETIFR = 0;    //定时器3的中断标志寄存器清零
+	
+	/*65536-(11059200/64)*0.002=65190=FEA6*/
+	TCNT3H = 0xFE;
+	TCNT3L = 0xA6;
+	
+	TCCR3B |= (1<<CS31)|(1<<CS30);   //64分频
+	ETIMSK = (1<<TOIE3);    //定时器3溢出中断使能
+}
+/******************************************************************************************
+* 函 数 名  ：TWI_Init
+* 功能说明：TWI初始化 --> 波特率、TWAR、TWCR
+* 输入参数：void
+* 返 回 值 ：void
+*******************************************************************************************/
+void TWI_Init()
+{
+	DDRD &=~((1<<0)|(1<<1)); PORTD |= (1<<0)|(1<<1);    //设置SLC，SDA内部上拉，若硬件有上拉电阻，这行代码可以不用
+	TWAR = 0xA0;
+	TWSR = 0;    //预分频设置为0
+	TWCR = (1<<TWEA)|(1<<TWEN)|(1<<TWIE);    //使能TWI接口、TWI应答、TWI中断; 其余位清零
+	sei();
+}
+
 /************************************************************************************************
 * 函 数 名 ：SystemInit
 * 功能说明：系统初始化函数 串口0初始化、串口1初始化、定时器3初始化、开中断
@@ -202,6 +300,7 @@ void SystemInit(void)
 	USART0_Init(115200,1);    //串口0初始化，波特率：115200，工作方式：MPCM
 	USART1_Init(115200,1);    //串口1初始化，波特率：115200，工作方式：MPCM
 	Timer3_Init();    //定时器3初始化，每2ms进入一次中断
+	TWI_Init();
 	sei();
 }
 
@@ -231,20 +330,20 @@ void GPIO_Init(void)
 
 /***************************************************************************************************************
 * 函 数 名 ：MCUProtocolCheck
-* 功能说明：对CPU1或CPU4发送过来的数据进行帧校验, 通过校验后将数据存入MCUFrameData中
-* 输入参数：p_rxUart0 --> rxUart0   p_MCUFrameData --> MCUFrameData
+* 功能说明：对机感板或通讯板发送过来的数据进行帧校验, 通过校验后将数据存入MCUFrameData中
+* 输入参数：prx --> rxUart0 or rxTWI    pMCUFrameData --> MCUFrameData
 * 返 回 值 ：1 or 0
 ***************************************************************************************************************/
-uint8_t MCUProtocolCheck(uint8_t* prxUart0, uint8_t* pMCUFrameData)
+uint8_t MCUProtocolCheck(uint8_t* prx, uint8_t* pMCUFrameData)
 {
-	uint8_t* p = prxUart0;
+	uint8_t* p = prx;
 		
 	uint16_t check = Check_CRC16(p, 15);    //将数据的前15个字节进行CRC16运算，与接收到的CRC16进行比较   
-	uint16_t CRC16 = prxUart0[15]<<8 | prxUart0[16];
+	uint16_t CRC16 = prx[15]<<8 | prx[16];
 		
-	if((prxUart0[0] == 0xAA) && (check == CRC16))    //是AA格式的帧数据，且通过CRC16校验
+	if((prx[0] == 0xAA) && (check == CRC16))    //是AA格式的帧数据，且通过CRC16校验
 	{
-		memcpy(pMCUFrameData,prxUart0,17);    //将rxUart0中的前17个数据存入FrameData中 
+		memcpy(pMCUFrameData,prx,17);    //将rxUart0中的前17个数据存入FrameData中 
 		return VALID;
 	}
 		
@@ -254,7 +353,7 @@ uint8_t MCUProtocolCheck(uint8_t* prxUart0, uint8_t* pMCUFrameData)
 /***************************************************************************************************************
 * 函 数 名 ：MonitorProtocolCheck
 * 功能说明：对监控主机发送过来的数据进行帧校验, 通过校验后将数据存入MonitorFrameData中
-* 输入参数：p_rxUart1 --> rxUart1   p_MonitorFrameData --> MonitorFrameData
+* 输入参数：prxUart1 --> rxUart1   pMonitorFrameData --> MonitorFrameData
 * 返 回 值 ：1 or 0
 ***************************************************************************************************************/
 uint8_t MonitorProtocolCheck(uint8_t* prxUart1, uint8_t* pMonitorFrameData)
