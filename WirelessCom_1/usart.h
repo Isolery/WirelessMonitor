@@ -35,4 +35,14 @@ extern void MPCM_USART1_TransmitString(const uint8_t* cString, uint8_t addr);
 extern void MPCM_USART1_TransmitArray(const uint8_t* Array, uint8_t len, uint8_t addr);
 extern void MPCM_USART1_TransmitFrame(const uint8_t* Frame, uint8_t addr);
 
+extern void USART2_Init(uint32_t baudRate);
+extern void USART2_TransmitByte(uint8_t data);
+extern void USART2_TransmitString(uint8_t* cString);
+extern void USART2_TransmitArray(const uint8_t* Array, uint8_t len);
+
+extern void USART3_Init(uint32_t baudRate);
+extern void USART3_TransmitByte(uint8_t data);
+extern void USART3_TransmitString(uint8_t* cString);
+extern void USART3_TransmitArray(const uint8_t* Array, uint8_t len);
+
 #endif
