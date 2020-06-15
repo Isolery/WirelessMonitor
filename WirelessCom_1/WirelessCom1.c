@@ -8,7 +8,6 @@
 #include "usart.h"
 #include "crc16.h"
 
-
 #define TRUE    1
 #define FALSE   0
 #define BEGIN   1
@@ -16,6 +15,8 @@
 
 uint8_t failue=0;
 uint8_t ledType = 0;
+
+uint16_t countRx2 = 0;
 
 /*标志位相关变量*/
 uint8_t flag_LedON = END;    //是否开始点亮LED
@@ -28,6 +29,7 @@ uint32_t  tLedCount= 0;    //LED计时计数器
 /*数组定义区*/
 uint8_t rxUart0[20];   //串口0数据缓存区
 uint8_t rxUart1[20];   //串口1数据缓存区
+uint8_t rxUart2[3502];
 uint8_t FrameData[20];    //
 
 /*函数声明区*/
@@ -52,8 +54,8 @@ uint8_t DecodeProtocol(uint8_t* p_rxUart0, uint8_t* p_FrameData);
 int main(void)
 {
 	SystemInit();
-	EEPROM_Successive_Write(0x00,0x04);    //将EEPROM前500个字节填充成0x02
-	
+	//EEPROM_Successive_Write(0x00,0x04);    //将EEPROM前500个字节填充成0x02
+	//DTU_Configuration();
 	while(1)
 	{
 		if(flag_NewData)    //串口有新数据到来
@@ -314,3 +316,70 @@ void SystemInit(void)
 	Timer3_Init();
 	sei();
 }
+
+/************************************************************************************
+* 函数介绍：DTU配置函数，用来设置DTU的TCP通道以连接云服务器
+* 输入参数：无
+* 返 回 值 ：无
+***********************************************************************************/
+//char DTU_Configuration(void)
+//{
+	//memset(rxUart0, '\0', sizeof(rxUart0));  //清除缓存数组
+	//countRx2=0;
+	//
+	//Uart2_TxString("AT+ENTERCFG\r\n");    //进入配置模式
+	//tLimt_rxTime=0;
+	//while((strstr(rxUart0, "OK") == NULL) && (Time_up_Return(300)));    //60s内未返回OK，退出等待
+	//if(failue)   //任意一步配置错误直接退出，避免不必要的操作
+	//{
+		//return 0;
+	//}
+	//memset(rxUart0, '\0', sizeof(rxUart0));
+	//countRx0=0;
+	//delay_ms(100);
+	//
+	//Uart0_TxString("AT+SET=9,121.36.107.81\r\n");    //设置数据中心2的ip地址
+	//tLimt_rxTime=0;
+	//while((strstr(rxUart0, "OK") == NULL) && (Time_up_Return(100)));    //10s内未返回OK，退出等待
+	//if(failue)   //任意一步配置错误直接退出，避免不必要的操作
+	//{
+		//return 0;
+	//}
+	//memset(rxUart0, '\0', sizeof(rxUart0));
+	//countRx0=0;
+	//delay_ms(100);
+	//
+	//Uart0_TxString("AT+SET=10,33\r\n");    //设置数据中心2的端口
+	//tLimt_rxTime=0;
+	//while((strstr(rxUart0, "OK") == NULL) && (Time_up_Return(100)));    //10s内未返回OK，退出等待
+	//if(failue)   //任意一步配置错误直接退出，避免不必要的操作
+	//{
+		//return 0;
+	//}
+	//memset(rxUart0, '\0', sizeof(rxUart0));
+	//countRx0=0;
+	//delay_ms(100);
+	//
+	//Uart0_TxString("AT+SET=12,2\r\n");    //设置数据中心2的数据源
+	//tLimt_rxTime=0;
+	//while((strstr(rxUart0, "OK") == NULL) && (Time_up_Return(100)));    //10s内未返回OK，退出等待
+	//if(failue)   //任意一步配置错误直接退出，避免不必要的操作
+	//{
+		//return 0;
+	//}
+	//memset(rxUart0, '\0', sizeof(rxUart0));
+	//countRx0=0;
+	//delay_ms(100);
+	//
+	//Uart0_TxString("AT+EXITCFG\r\n");    //退出配置模式
+	//tLimt_rxTime=0;
+	//while((strstr(rxUart0, "OK") == NULL) && (Time_up_Return(100)));    //10s内未返回OK，退出等待
+	//if(failue)   //任意一步配置错误直接退出，避免不必要的操作
+	//{
+		//return 0;
+	//}
+	//memset(rxUart0, '\0', sizeof(rxUart0));
+	//countRx0=0;
+	//
+	//return 1;
+//}
