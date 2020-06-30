@@ -85,19 +85,21 @@ int main(void)
 	SystemInit(); 
 	while(1)
 	{
-		MPCM_USART0_TransmitFrame(test, 0xC1);
-		_delay_ms(100);
-		//if(flag_RxFinish)    //串口有新数据到来
-		//{
-			//UART0_DEN;
-				//
-			//Deal_RLM_Data();	
-				//
-			//flag_RxFinish = FALSE;
-			//UART0_EN;
-		//}
-		//Time_up_Clear();    //定时清0存储的数据
-		//Led_Display(ledType);    //点亮LED灯，只在有线信号时有用 
+		if(flag_RxFinish)    //串口有新数据到来
+		{
+			UART0_DEN;
+			
+			Deal_RLM_Data();	
+			flag_RxFinish = FALSE;
+			
+			UART0_EN;
+		}
+		else
+		{
+			_delay_ms(100);
+		}
+		Time_up_Clear();    //定时清0存储的数据
+		Led_Display(ledType);    //点亮LED灯，只在有线信号时有用 
 	}
 	return 0;
 }
@@ -264,17 +266,14 @@ ISR(TWI_vect)
 		}
 		case TW_MT_DATA_ACK:    //数据已发送且接收到ACK
 		{
-			/* STOP */
-			//TWCR = ((1<<TWSTO)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送STOP
+			/* 继续发送数据 */
 			for(i=1; i<17; i++)
 			{
 				TWDR = FrameData[i];
-				//_delay_ms(100);
 				TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));     //写1清除TWINT标志位，启动TWI工作
 				while (!(TWCR & (1<<TWINT)));    //TWINT置位表示接收到从机的ACK，因此可以不用跳出中断继续执行for循环
 			}
 			TWCR = ((1<<TWSTO)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送STOP
-			//TWCR = ((1<<TWSTA)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送START
 			break;
 		}
 		case TW_MT_DATA_NACK:    //数据已发送且接收到NACK
@@ -540,27 +539,19 @@ void ProcessTransmit(const uint8_t* p_EpcData)
 	if(p_EpcData[1] == 0xE1)    //有线，使用TWI来传输
 	{
 		ledType = p_EpcData[7];
-		FrameProcess(FrameData, EpcData, 0x21, sizeof(EpcData));    //Type的定义：高位1代表CPU1 | 低位1代表主动上传消息   
+		FrameProcess(FrameData, EpcData, 0x21, sizeof(EpcData));    //Type的定义：高位1代表CPU2 | 低位1代表主动上传消息   
 		TWCR = (1<<TWSTA)|(1<<TWINT)|(1<<TWEN)|(1<<TWIE);    //TWI发送START信号，启动TWI传输
 			
 		flag_LedON = BEGIN;    //开始亮灯
 		tLedCount = 0;
+		
+		return;
 	}
 		
 	if(p_EpcData[1] == 0xE0)    //无线，使用串口来传输
 	{
 		FrameProcess(FrameData, EpcData, 0x21, sizeof(EpcData));   
-		MPCM_USART1_TransmitFrame(FrameData, 0xC1);    //发送给WirelessCom_1 --> 通信板第一个CPU
-	}
-		
-	if(p_EpcData[1] == 0x00)    //Test
-	{
-		ledType = p_EpcData[7];
-		FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));   
-		MPCM_USART1_TransmitFrame(FrameData, 0x9B);    //test used
-			
-		flag_LedON = BEGIN;    //开始亮灯
-		tLedCount = 0;
+		MPCM_USART1_TransmitFrame(FrameData, 0xC2);    //发送给WirelessCom_2 --> 通信板第二个CPU
 	}
 }
 
@@ -631,6 +622,7 @@ void SystemInit(void)
 {
     DDRA=0xff;
 	PORTA=0x08;    //开始亮绿灯
+	DDRD &=~((1<<0)|(1<<1)); PORTD |= (1<<0)|(1<<1);
 	USART0_Init(115200,0);
 	USART1_Init(115200,1);
 	Timer3_Init();
