@@ -5,11 +5,8 @@
 #include "predefine.h"
 #include "usart.h"
 #include "crc16.h"
-#include <util/twi.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
-
-#define SLAVERADDR    0xA0
 
 #define UART1_EN         UCSR1B|= (1<< RXEN1)
 #define UART1_DEN       UCSR1B&=~(1<< RXEN1)
@@ -67,7 +64,6 @@ void Time_up_Clear(void);
 void Deal_RLM_Data(void);
 void Led_Display(uint8_t ledType);
 void RuleCheck(const uint8_t* p_EpcData);
-void ProcessTransmit(const uint8_t* p_EpcData);
 uint8_t DecodeProtocol(const uint8_t* p_rxUart0, uint8_t* p_EpcData);
 void FrameProcess(uint8_t* dstArray, const uint8_t* srcArray, uint8_t type, uint8_t len);
 void check_preportdata(uint8_t* p_EpcData, uint8_t* p_storeRedirDD, uint8_t* p_storeFdirYGD, uint8_t* p_storeFdirYGD2);
@@ -79,13 +75,14 @@ uint8_t check_portdata(uint8_t* p_EpcData, uint8_t* p_storeFdirYGD, uint8_t* p_s
 * 功能说明：c程序入口
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 int main(void)
 {
 	SystemInit(); 
+	
 	while(1)
 	{
-		if(flag_RxFinish)    //串口有新数据到来
+		if(flag_RxFinish)    //串口0有新数据到来
 		{
 			UART0_DEN;
 			
@@ -105,11 +102,10 @@ int main(void)
 }
 
 /**********************************************************************************************
-* 函 数 名  ：Uart0_Interrupt_Receive
 * 功能说明：串口0中断接收函数
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 ISR(USART0_RX_vect)
 {
     volatile static uint8_t temp, lastdata, countRx;
@@ -176,11 +172,10 @@ ISR(USART0_RX_vect)
 }
 
 /**********************************************************************************************
-* 函 数 名  ：Uart1_Interrupt_Receive
 * 功能说明：串口1中断接收函数
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 ISR(USART1_RX_vect)
 { 
     volatile static uint8_t temp, countRx, NinthData;
@@ -208,11 +203,10 @@ ISR(USART1_RX_vect)
 }  
 
 /**********************************************************************************************
-* 函 数 名  ：Timer3_ovf_Interrupt
 * 功能说明：定时器3溢出中断函数
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 ISR(TIMER3_OVF_vect)
 {
 	TCNT3H=0xFE;
@@ -227,77 +221,12 @@ ISR(TIMER3_OVF_vect)
 	if(clearFlag_Rear_DD == BEGIN) tCountRD++;
 }
 
-/******************************************************************************************
-* 功能说明：TWI中断函数，MT模式
-* 输入参数：void
-* 返 回 值 ：void
-******************************************************************************************/
-ISR(TWI_vect)
-{
-	uint8_t i = 0;
-	switch(TW_STATUS)
-	{
-		case TW_START:    //START已发送
-		{
-			/* 加载SLA+W */
-			TWDR = SLAVERADDR;
-			TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));     //写1清除TWINT标志位，启动TWI工作
-			break;
-		}
-		case TW_REP_START:    //RESTART已发送
-		{
-			/* 加载SLA+W */
-			TWDR = SLAVERADDR;
-			TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));     //写1清除TWINT标志位，启动TWI工作
-			break;
-		}
-		case TW_MT_SLA_ACK:    //SLA+W已发送且接收到ACK
-		{
-			/* 加载数据 */
-			TWDR = FrameData[0];
-			TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));    //写1清除TWINT标志位，启动TWI工作
-			break;
-		}
-		case TW_MT_SLA_NACK:    //SLA+W已发送且接收到NACK
-		{
-			/* RESTART */
-			TWCR = ((1<<TWSTA)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));
-			break;
-		}
-		case TW_MT_DATA_ACK:    //数据已发送且接收到ACK
-		{
-			/* 继续发送数据 */
-			for(i=1; i<17; i++)
-			{
-				TWDR = FrameData[i];
-				TWCR = ((1<<TWINT)|(1<<TWEN)|(1<<TWIE));     //写1清除TWINT标志位，启动TWI工作
-				while (!(TWCR & (1<<TWINT)));    //TWINT置位表示接收到从机的ACK，因此可以不用跳出中断继续执行for循环
-			}
-			TWCR = ((1<<TWSTO)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));    //发送STOP
-			break;
-		}
-		case TW_MT_DATA_NACK:    //数据已发送且接收到NACK
-		{
-			/* RESTART */
-			TWCR = ((1<<TWSTA)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));
-			break;
-		}
-		case TW_MT_ARB_LOST:    //SLA+W或数据的仲裁失败
-		{
-			/* 自动进入从机模式 */
-			//TWCR = ((1<<TWSTA)|(1<<TWEN)|(1<<TWIE)|(1<<TWINT));
-			break;
-		}
-		
-		default: break;
-	}
-}
 /**********************************************************************************************
 * 函 数 名 ：DealRxData
 * 功能说明：处理从串口0接收的数据(射频模块传上来的数据)
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 void Deal_RLM_Data(void)
 {
 	if(DecodeProtocol(rxUart0, EpcData))    //对RLM的数据进行校验，只有通过校验的数据才能进行下一步的处理
@@ -320,6 +249,7 @@ uint8_t DecodeProtocol(const uint8_t* p_rxUart0, uint8_t* p_EpcData)
 {
     uint8_t i;
 	const uint8_t* p = p_rxUart0;
+	
 	if((*p++ == 0xAA) && (*(p+*p) == 0x55))    //完整的数据帧
 	{
 		if((p_rxUart0[5]==0xAA) && (p_rxUart0[6] == 0xBB))    //是AABB数据？
@@ -339,7 +269,7 @@ uint8_t DecodeProtocol(const uint8_t* p_rxUart0, uint8_t* p_EpcData)
 * 功能说明：对Epc数据进行规则检查 通过 --> 通过串口0向上发送数据  不通过 --> 忽略
 * 输入参数：p_EpcData --> EpcData
 * 返 回 值 ：void
-***********************************************************************************************/
+************************************************************************************************/
 void RuleCheck(const uint8_t* p_EpcData)
 {
 	if(p_EpcData[6] == 0x01)    //如果是预告点
@@ -355,12 +285,13 @@ void RuleCheck(const uint8_t* p_EpcData)
 		/*检查地感，正向 or 反向  上报 or 忽略*/
 		if(check_portdata(EpcData, storeFdirYGD, storeFdirYGD2, storeRedirDD, storeLastportdata)) 
 		{
-			ProcessTransmit(EpcData);    //对通过规则校验后的数据进行处理后上传
+			FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));       
+			MPCM_USART1_TransmitFrame(FrameData, 0xC1);    //发送给WirelessCom_1 --> 通信板第一个CPU
 		}
 	}
 }
 
-/********************************************************************************************************************************************************
+/*********************************************************************************************************************************************************
 * 函 数 名 ：check_preportdata
 * 功能说明：预告点的检查规则 与反向定点中的数据进行比较
                     匹配 --> 忽略  不匹配 --> 存入正向预告点
@@ -398,11 +329,11 @@ void check_preportdata(uint8_t* p_EpcData, uint8_t* p_storeRedirDD, uint8_t* p_s
 	}	
 }
 
-/********************************************************************************************************************************************************
+/*********************************************************************************************************************************************************
 * 函 数 名 ：check_portdata
 * 功能说明：地感的检查规则 与正向预告点中的数据进行比较，
                     匹配且不重复 --> 规则通过 
-						不匹配 --> 存入反向定点
+					不匹配 --> 存入反向定点
 * 输入参数：p_EpcData --> EpcData  p_storeFdirYGD --> storeFdirYGD  p_storeFdirYGD2 --> storeFdirYGD2  
                     p_storeRedirDD --> storeRedirDD   p_storeLastportdata --> storeLastportdata
 * 返 回 值 ：通过-->1 or 不通过-->0
@@ -414,6 +345,7 @@ uint8_t check_portdata(uint8_t* p_EpcData, uint8_t* p_storeFdirYGD, uint8_t* p_s
 	uint8_t epc_Code = p_EpcData[10];
 	uint8_t epc_Distance = p_EpcData[8]; 
 	uint8_t epc_Led = p_EpcData[9]; 
+	
 	/*判断是否是正向定点*/
 	if( (p_storeFdirYGD[10] == epc_Code) && (p_storeFdirYGD[8] == epc_Distance) )
 	{ 
@@ -478,7 +410,7 @@ uint8_t check_portdata(uint8_t* p_EpcData, uint8_t* p_storeFdirYGD, uint8_t* p_s
 * 功能说明：定时时间到，按规则清除存储的Epc数据
 * 输入参数：void
 * 返 回 值 ：void
-***********************************************************************************************/
+************************************************************************************************/
 void Time_up_Clear(void)
 {
 	/*收到预告点后开始定时清存储的点*/
@@ -529,38 +461,11 @@ void Time_up_Clear(void)
 }
 
 /**********************************************************************************************
-* 函 数 名 ：ProcessTransmit
-* 功能说明：对规则校验通过的数据处理后发送, 有线数据传给CPU3, 无线数据传给CPU4
-* 输入参数：void
-* 返 回 值 ：void
-*********************************************************************************************/
-void ProcessTransmit(const uint8_t* p_EpcData)
-{
-	if(p_EpcData[1] == 0xE1)    //有线，使用TWI来传输
-	{
-		ledType = p_EpcData[7];
-		FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));    //Type的定义：高位1代表CPU1 | 低位1代表主动上传消息   
-		TWCR = (1<<TWSTA)|(1<<TWINT)|(1<<TWEN)|(1<<TWIE);    //TWI发送START信号，启动TWI传输
-			
-		flag_LedON = BEGIN;    //开始亮灯
-		tLedCount = 0;
-		
-		return;
-	}
-		
-	if(p_EpcData[1] == 0xE0)    //无线，使用串口来传输
-	{
-		FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));   
-		MPCM_USART1_TransmitFrame(FrameData, 0xC1);    //发送给WirelessCom_1 --> 通信板第一个CPU
-	}
-}
-
-/**********************************************************************************************
 * 函 数 名  ：FrameProcess
 * 功能说明：将源数组按照规则组成一帧数据
 * 输入参数：dstArray -- 目的数组  srcArry -- 源数组  type -- 帧类型  len -- 源数组的长度
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 void FrameProcess(uint8_t* dstArray, const uint8_t* srcArray, uint8_t type, uint8_t len)
 {
 	uint8_t* p_dstArray = dstArray;
@@ -599,19 +504,6 @@ void Timer3_Init(void)
 	ETIMSK=(1<<TOIE3);    //定时器3溢出中断使能
 }
 
-/******************************************************************************************
-* 函 数 名  ：TWI_Init
-* 功能说明：TWI初始化 --> 波特率、TWCR
-* 输入参数：void
-* 返 回 值 ：void
-*******************************************************************************************/
-void TWI_Init()
-{
-	TWSR = 0;    //预分频设置为0
-	TWBR = 15;    //Fscl = FOSC/(16+2·TWBR·4^TWPS)
-	TWCR = (1<<TWEN)|(1<<TWIE);    //使能TWI接口、TWI中断; 其余位清零
-}
-
 /************************************************************************************************
 * 函 数 名 ：SystemInit
 * 功能说明：系统初始化函数 串口0初始化、串口1初始化、定时器3初始化、开中断
@@ -626,7 +518,6 @@ void SystemInit(void)
 	USART0_Init(115200,0);
 	USART1_Init(115200,1);
 	Timer3_Init();
-	TWI_Init();
 	//SEI();    //该语句在studio6.2中不被识别
 	sei();
 }

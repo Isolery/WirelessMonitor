@@ -15,9 +15,9 @@
 #define END      0
 
 #define UART2_EN         UCSR2B |= (1<< RXEN2)
-#define UART2_DEN       UCSR2B &=~(1<< RXEN2)
+#define UART2_DEN       UCSR2B &= ~(1<< RXEN2)
 
-uint8_t failue=0;
+uint8_t failue = 0;
 uint8_t ledType = 0;
 
 uint16_t countRx2 = 0;
@@ -41,13 +41,13 @@ char temp[10];
 /*函数声明区*/
 void Led_Slake(void);
 void SystemInit(void);
-void DealData(const char* rxUart2, char* pcRes);
 void Timer3_Init(void);
 uint8_t DTU_Configuration(void);
-uint8_t Time_up_Return(uint16_t n);
 void Led_Display(uint8_t ledType);
+uint8_t Time_up_Return(uint16_t n);
 uint8_t EEPROM_Read(uint16_t Addr);
 void DealFrameData(uint8_t* p_FrameData);
+void DealData(const char* rxUart2, char* pcRes);
 void EEPROM_Write(uint16_t Addr,uint8_t Data);
 void FrameProcess(uint8_t* dstArray, uint8_t type);
 void EEPROM_Successive_Write(uint16_t Addr,uint8_t Data);
@@ -63,8 +63,9 @@ void(*reset)(void)=0x0000;    //软复位，程序重新从头执行
 **********************************************************************************************/
 int main(void)
 {
+	const char *stationcode = "014469014469\r\n";    //车站代码
 	
-	SystemInit(); //EEPROM_Successive_Write(0x0000,0x02);    //将EEPROM前500个字节填充成0x02
+	SystemInit();   //EEPROM_Successive_Write(0x0000,0x02);    //将EEPROM前500个字节填充成0x02
 
 	DTU_Configuration();
 	_delay_ms(100);
@@ -77,7 +78,7 @@ int main(void)
 	
 	while((strstr(rxUart2, "OK") == NULL))
 	{
-		USART2_TransmitString("014469014469\r\n");  //DTU先传送014469014469
+		USART2_TransmitString(stationcode);  //DTU先传送车站代码
 		_delay_ms(1000);
 	}
 	USART2_TransmitString("OK\r\n");  //DTU回复OK
@@ -100,25 +101,36 @@ int main(void)
 			countRx2 = 0;
 			
 			UART2_EN; 
-		}
-		else
+		}else
 		{
 			_delay_ms(1);
 		}
+		
 		if(flag_NewData)    //串口有新数据到来
 		{
-			//USART1_TransmitFrame(rxUart0);    //test used
 			if(DecodeProtocol(rxUart0, FrameData))    //对数据进行帧校验
 			{
-				DealFrameData(FrameData);    //开始处理数据
-			}
-			else
+				/* 以下为校验通过后执行的操作 */
+				switch(FrameData[4])
+				{
+					case 0xE0:    //无线数据
+					{
+						DealFrameData(FrameData);    //开始处理数据
+						break;
+					}
+					case 0xE1:    //有线数据
+					{
+						MPCM_USART1_TransmitFrame(FrameData, 0x9B);    //发送给MsgDeal_1
+						break;
+					}
+					default:break;
+				}
+			}else
 			{
 				//again
 			}
 			flag_NewData = FALSE;
-		}
-		else
+		}else
 		{
 			_delay_ms(1);
 		}
@@ -130,7 +142,7 @@ int main(void)
 * 功能说明：串口0中断接收函数
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 ISR(USART0_RX_vect)
 {
 	volatile static uint8_t temp, countRx, NinthData;
@@ -161,7 +173,7 @@ ISR(USART0_RX_vect)
 * 功能说明：串口2中断接收函数 
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 ISR(USART2_RX_vect)
 {
 	rxUart2[countRx2++] = UDR2;
@@ -234,7 +246,7 @@ void Timer3_Init(void)
 * 功能说明：定时器3溢出中断函数。100ms进入一次中断
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 ISR(TIMER3_OVF_vect)
 {
 	TCNT3H=0xBC;
@@ -269,17 +281,18 @@ uint8_t DecodeProtocol(uint8_t* p_rxUart0, uint8_t* p_FrameData)
 
 /**********************************************************************************************
 * 函 数 名 ：DealFrameData
-* 功能说明：处理帧数据, 有线数据传给CPU3, 无线数据传给CPU4
+* 功能说明：处理帧数据，该数据为无线数据，需要查询灯信号并补上该位数据
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 void DealFrameData(uint8_t* p_FrameData)
 {
-	uint16_t addr;
+	uint16_t addr = 0;
 	
 	addr = p_FrameData[7]<<8 | p_FrameData[8];    //取地址
+	
 	ledType = EEPROM_Read(addr);    //从EEPROM中读取该地址对应的灯号
-	p_FrameData[10] = (p_FrameData[10]&0xF0)|ledType;    //补全无线数据的灯信号
+	p_FrameData[10] = (p_FrameData[10]&0xF0) | ledType;    //补全无线数据的灯信号
 	
 	FrameProcess(p_FrameData, 0x41);    //修改type, 灯码后重新计算CRC的值
 	MPCM_USART1_TransmitFrame(FrameData, 0x9B);    //发送给MsgDeal_1
@@ -293,7 +306,7 @@ void DealFrameData(uint8_t* p_FrameData)
 * 功能说明：将源数组按照规则组成一帧数据
 * 输入参数：dstArray -- 目的数组   type -- 帧类型
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 void FrameProcess(uint8_t* dstArray, uint8_t type)
 {
 	uint8_t* p_dstArray = dstArray;
@@ -311,7 +324,7 @@ void FrameProcess(uint8_t* dstArray, uint8_t type)
 * 功能说明：亮灯函数
 * 输入参数：ledType
 * 返 回 值 ：void
-************************************************************************************************/
+*************************************************************************************************/
 void Led_Display(uint8_t ledType)
 {
 	switch(ledType&0x0F)
@@ -389,8 +402,8 @@ uint8_t DTU_Configuration(void)
 {
 	const char *pdata = rxUart2;
 	const char *enter_config = "AT+ENTERCFG\r\n";
-	const char *set_ip = "AT+SET=9,121.36.107.81\r\n";
-	const char *set_port = "AT+SET=10,33\r\n";
+	const char *set_ip = "AT+SET=9,124.70.191.189\r\n";
+	const char *set_port = "AT+SET=10,22\r\n";
 	const char *set_datasource = "AT+SET=12,2\r\n";
 	const char *exit_config = "AT+EXITCFG\r\n";
 	
@@ -459,7 +472,7 @@ uint8_t DTU_Configuration(void)
 * 函数介绍：延时函数，当延时达到n*100ms时返回0，用于退出while循环
 * 输入参数：n （延时时间：n*100ms）
 * 返 回 值 ：无
-***********************************************************************************/
+************************************************************************************/
 uint8_t Time_up_Return(uint16_t n)
 {
 	if(tLimt_rxTime == n)
@@ -478,7 +491,7 @@ uint8_t Time_up_Return(uint16_t n)
 * 函数介绍：处理从云服务器传送的数据信息，并存到EEPROM中
 * 输入参数：rxUart2
 * 返 回 值 ：无
-***********************************************************************************/
+************************************************************************************/
 void DealData(const char* rxUart2, char* pcRes)
 {
 	const char* p = rxUart2;

@@ -1,7 +1,6 @@
 #include <avr/io.h>
 #include <stdio.h>
 #include <string.h>
-#include <util/twi.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
 #include "usart.h"
@@ -20,9 +19,6 @@
 #define VALID    1
 #define INVALID 0
 
-#define ACK()     (TWCR = (1<<TWINT)|(1<<TWEA)|(1<<TWEN)|(1<<TWIE))
-#define NACK()  (TWCR = (1<<TWINT)|(1<<TWEN)|(1<<TWIE))
-
 uint8_t lastdirect;  
 uint8_t *pHandle = (uint8_t *)(0x0200);    //保存手柄方向  0x04 --> 前向  0x02 --> 后向
 uint8_t ledType = 0; 
@@ -34,12 +30,10 @@ uint8_t NewData_TWI = FALSE;    //是否是新数据
 uint8_t flag_LedON = END;    //是否开始点亮LED
 uint8_t CheckCorrect = FALSE;    //串口1接收的数据是否正确
 
-
 /*定时器相关变量*/
 uint32_t  tLedCount = 0;    //LED计时计数器
 
 /*数组定义区*/
-uint8_t rxTWI[17];      //TWI接收缓存区
 uint8_t rxUart0[20];   //串口0数据缓存区，与CPU1，CPU4进行通信
 uint8_t rxUart1[20];   //串口1数据缓存区，与监控主机进行通信
 uint8_t MonitorFrameData[20];    //保存从监控主机传过来的一帧数据
@@ -47,10 +41,7 @@ uint8_t MCUFrameData[20];    //保存从CPU1或CPU4传过来的一帧数据
 uint8_t TransmitToMonitor[16];    //发送给监控主机
 uint8_t ReceiveFromMonitor[16];    //从监控主机接收数据
 
-
-
 /*函数声明区*/
-void TWI_Init();
 void GPIO_Init(void);
 void Led_Slake(void);
 void SystemInit(void);
@@ -68,7 +59,7 @@ void Prepare_Transmit(uint8_t* pTransmitToMonitor, uint8_t* pMCUFrameData);
 * 功能说明：C程序入口
 * 输入参数：void
 * 返 回 值 ：0
-*********************************************************************************************/
+**********************************************************************************************/
 int main(void)
 {
     SystemInit(); 
@@ -87,19 +78,6 @@ int main(void)
 			NewData_Uart0 = FALSE;
 		}
 		
-		if(NewData_TWI)    //TWI接收到新数据
-		{
-			//USART1_TransmitArray(rxTWI, sizeof(rxTWI));
-			
-			if(MCUProtocolCheck(rxTWI, MCUFrameData) == VALID)
-			{
-				ledType = MCUFrameData[10];
-				flag_LedON = BEGIN;
-				tLedCount = 0;
-			}
-			NewData_TWI = FALSE;
-		}
-			
 		if(NewData_Uart1)    //串口1有新数据到来
 		{
 			if(MonitorProtocolCheck(rxUart1, MonitorFrameData) == VALID)    //对监控主机的数据进行帧校验    
@@ -182,55 +160,13 @@ ISR(USART1_RX_vect)
 * 功能说明：定时器3溢出中断函数  2ms进入一次中断
 * 输入参数：void
 * 返 回 值 ：void
-*********************************************************************************************/
+**********************************************************************************************/
 ISR(TIMER3_OVF_vect)
 {
     TCNT3H=0xFE;      
     TCNT3L=0xA6;    
 		
 	if(flag_LedON == BEGIN) tLedCount++;    //LED开始定时熄灭
-}
-
-/******************************************************************************************
-* 功能说明：TWI中断函数，SR模式
-* 输入参数：void
-* 返 回 值 ：void
-******************************************************************************************/
-ISR(TWI_vect)
-{
-	volatile static uint8_t countRx, temp;
-	switch(TW_STATUS)
-	{
-		case TW_SR_SLA_ACK:                         //被主机SLA+W寻址，返回ACK
-		case TW_SR_ARB_LOST_SLA_ACK:        //作为主机仲裁失败且SLA+W被接收，返回ACK
-		case TW_SR_GCALL_ACK:                     //接收到广播地址，返回ACK
-		case TW_SR_ARB_LOST_GCALL_ACK:    //作为主机仲裁失败且接收到广播地址，返回ACK
-		{
-			countRx = 0;
-			ACK(); break;   //返回ACK
-		}
-		
-		case TW_SR_DATA_ACK:    //被SLA+W寻址, 数据已接收, 产生ACK
-		case TW_SR_GCALL_DATA_ACK:    //被广播寻址, 数据已接收, 产生ACK
-		{
-			temp = TWDR;
-			rxTWI[countRx++] = temp;
-			if(countRx == 17)
-			{
-				NewData_TWI = TRUE;
-			}
-			ACK(); break;   //返回ACK
-		}
-		
-		case TW_SR_DATA_NACK:    //被SLA+W寻址, 数据已接收, 产生NACK
-		case TW_SR_GCALL_DATA_NACK:    //被广播寻址, 数据已接收, 产生NACK
-		NACK(); break;    //返回NACK
-		
-		case TW_SR_STOP:    //在以从机工作时接收到STOP或重复START
-		ACK(); break;    //返回ACK
-		
-		default: break;
-	}
 }
 
 /**********************************************************************************************
@@ -241,28 +177,14 @@ ISR(TWI_vect)
 **********************************************************************************************/
 void Timer3_Init(void)
 {
-	ETIFR = 0;    //定时器3的中断标志寄存器清零
+	TIFR3 = 0;    //定时器3的中断标志寄存器清零
 	
-	/*65536-(11059200/64)*0.002=65190=FEA6*/
+	/*65536-(11059200/64)*0.1=48256=BC80*/
 	TCNT3H = 0xFE;
 	TCNT3L = 0xA6;
 	
-	TCCR3B |= (1<<CS31)|(1<<CS30);   //64分频
-	ETIMSK = (1<<TOIE3);    //定时器3溢出中断使能
-}
-/******************************************************************************************
-* 函 数 名  ：TWI_Init
-* 功能说明：TWI初始化 --> 波特率、TWAR、TWCR
-* 输入参数：void
-* 返 回 值 ：void
-*******************************************************************************************/
-void TWI_Init()
-{
-	DDRD &=~((1<<0)|(1<<1)); PORTD |= (1<<0)|(1<<1);    //设置SLC，SDA内部上拉，若硬件有上拉电阻，这行代码可以不用
-	TWAR = 0xA0;
-	TWSR = 0;    //预分频设置为0
-	TWCR = (1<<TWEA)|(1<<TWEN)|(1<<TWIE);    //使能TWI接口、TWI应答、TWI中断; 其余位清零
-	sei();
+	TCCR3B|=(1<<CS31)|(1<<CS30);   //64分频
+	TIMSK3=(1<<TOIE3);    //定时器3溢出中断使能
 }
 
 /************************************************************************************************
@@ -277,7 +199,6 @@ void SystemInit(void)
 	USART0_Init(115200,1);    //串口0初始化，波特率：115200，工作方式：MPCM
 	USART1_Init(115200,1);    //串口1初始化，波特率：115200，工作方式：MPCM
 	Timer3_Init();    //定时器3初始化，每2ms进入一次中断
-	TWI_Init();
 	sei();
 }
 
