@@ -285,7 +285,7 @@ void RuleCheck(const uint8_t* p_EpcData)
 		/*检查地感，正向 or 反向  上报 or 忽略*/
 		if(check_portdata(EpcData, storeFdirYGD, storeFdirYGD2, storeRedirDD, storeLastportdata)) 
 		{
-			FrameProcess(FrameData, EpcData, 0x12, sizeof(EpcData));       
+			FrameProcess(FrameData, EpcData, 0x21, sizeof(EpcData));       
 			MPCM_USART1_TransmitFrame(FrameData, 0xC2);    //发送给WirelessCom_2 --> 通信板第二个CPU
 		}
 	}
