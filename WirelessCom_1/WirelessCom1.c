@@ -120,7 +120,7 @@ int main(void)
 					}
 					case 0xE1:    //有线数据
 					{
-						MPCM_USART1_TransmitFrame(FrameData, 0x9B);    //发送给MsgDeal_1
+						MPCM_USART0_TransmitFrame(FrameData, 0x9B);    //发送给MsgDeal_1
 						break;
 					}
 					default:break;
@@ -295,7 +295,7 @@ void DealFrameData(uint8_t* p_FrameData)
 	p_FrameData[10] = (p_FrameData[10]&0xF0) | ledType;    //补全无线数据的灯信号
 	
 	FrameProcess(p_FrameData, 0x41);    //修改type, 灯码后重新计算CRC的值
-	MPCM_USART1_TransmitFrame(FrameData, 0x9B);    //发送给MsgDeal_1
+	MPCM_USART0_TransmitFrame(FrameData, 0x9B);    //发送给MsgDeal_1
 	
 	flag_LedON = BEGIN;    //开始亮灯
 	tLedCount = 0;

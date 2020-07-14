@@ -108,7 +108,7 @@ int main(void)
 **********************************************************************************************/
 ISR(USART0_RX_vect)
 {
-    volatile static uint8_t temp, lastdata, countRx;
+	volatile static uint8_t temp, lastdata, countRx;
 	temp = UDR0;
 		
 	switch(temp)

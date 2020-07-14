@@ -360,19 +360,28 @@ void MPCM_USART1_TransmitMonitorFrame(const uint8_t* Frame)
 		UDR1 = Frame[i];    //
 	}
 }
+
 /**********************************************************************************************
 * 函 数 名  ：USART2_Init
 * 功能说明：串口2初始化函数  UBRRn = FOSC/16/baudRate - 1
-* 输入参数：baudRate --> 波特率  
+* 输入参数：baudRate --> 波特率  MPCMn --> 0 工作在普通模式  1 工作在MPCM模式
 * 返 回 值 ：void
 **********************************************************************************************/
-void USART2_Init(uint32_t baudRate)
+void USART2_Init(uint32_t baudRate, uint8_t MPCMn)
 {
 	uint16_t MYUBRRn = FOSC/16/baudRate-1;
 	
 	UBRR2H = (uint8_t)(MYUBRRn>>8);
 	UBRR2L  = (uint8_t)MYUBRRn;
-	UCSR2B|= (1<<RXCIE2)|(1<<RXEN2)|(1<<TXEN2);  //接收中断、接收、发送使能
+	UCSR2A |= MPCMn;     //U2X=0 | MPCM=0 or 1
+	if(MPCMn)
+	{
+		UCSR2B |= (1<<RXCIE2)|(1<<RXEN2)|(1<<TXEN2)|(1<<UCSZ22);
+	}
+	else
+	{
+		UCSR2B|= (1<<RXCIE2)|(1<<RXEN2)|(1<<TXEN2);  //接收中断、接收、发送使能
+	}
 	UCSR2C|= (1<<UCSZ21)|(1<<UCSZ20);    //数据位：8+MPCNn | 停止位：1 | 校验位：NONE
 }
 
@@ -421,6 +430,26 @@ void USART2_TransmitArray(const uint8_t* Array, uint8_t len)
 	}
 }
 
+/********************************************************************************************************************************
+* 函 数 名  ：MPCM_USART2_TransmitMonitorFrame
+* 功能说明：串口2发送一个帧数数据，帧数据的第3个字节代表后面数据的长度，加上帧头，type，CRCx2 共5个字节
+* 输入参数：Frame --> 帧数组
+* 返 回 值 ：void
+*********************************************************************************************************************************/
+void MPCM_USART2_TransmitMonitorFrame(const uint8_t* Frame)
+{
+	uint8_t i;
+	
+	UCSR2B|=(1<<TXB82);    //第9位写1表示地址
+	UDR2 = Frame[0];     //发送第一位数据，表示地址
+	asm("nop"); asm("nop"); asm("nop"); asm("nop");
+	for(i=1; i<17; i++)
+	{
+		while( !(UCSR2A&(1<<UDRE2)) );
+		UCSR2B&=~(1<<TXB81);    //第9位写0表示数据
+		UDR2 = Frame[i];    //
+	}
+}
 /**********************************************************************************************
 * 函 数 名  ：USART3_Init
 * 功能说明：串口3初始化函数  UBRRn = FOSC/16/baudRate - 1

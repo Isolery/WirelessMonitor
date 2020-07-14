@@ -26,7 +26,8 @@ uint8_t ledType = 0;
 /*标志位相关变量*/
 uint8_t NewData_Uart0 = FALSE;    //串口0是否接收到新数据
 uint8_t NewData_Uart1 = FALSE;    //串口1是否接收到新数据
-uint8_t NewData_TWI = FALSE;    //是否是新数据
+uint8_t NewData_Uart2 = FALSE;    //是否是新数据
+
 uint8_t flag_LedON = END;    //是否开始点亮LED
 uint8_t CheckCorrect = FALSE;    //串口1接收的数据是否正确
 
@@ -34,10 +35,11 @@ uint8_t CheckCorrect = FALSE;    //串口1接收的数据是否正确
 uint32_t  tLedCount = 0;    //LED计时计数器
 
 /*数组定义区*/
-uint8_t rxUart0[20];   //串口0数据缓存区，与CPU1，CPU4进行通信
-uint8_t rxUart1[20];   //串口1数据缓存区，与监控主机进行通信
+uint8_t rxUart0[20];   //串口0数据缓存区，与CPU4进行通信
+uint8_t rxUart1[20];   //串口1数据缓存区，与CPU5进行通信
+uint8_t rxUart2[20];   //串口2数据缓存区，与监控主机进行通信
 uint8_t MonitorFrameData[20];    //保存从监控主机传过来的一帧数据
-uint8_t MCUFrameData[20];    //保存从CPU1或CPU4传过来的一帧数据
+uint8_t MCUFrameData[20];    //保存从CPU4或CPU5传过来的一帧数据
 uint8_t TransmitToMonitor[16];    //发送给监控主机
 uint8_t ReceiveFromMonitor[16];    //从监控主机接收数据
 
@@ -77,15 +79,27 @@ int main(void)
 			}
 			NewData_Uart0 = FALSE;
 		}
-		
 		if(NewData_Uart1)    //串口1有新数据到来
 		{
-			if(MonitorProtocolCheck(rxUart1, MonitorFrameData) == VALID)    //对监控主机的数据进行帧校验    
+			if(MCUProtocolCheck(rxUart1, MCUFrameData) == VALID)
+			{
+				//USART0_TransmitArray(MCUFrameData, 17);
+				ledType = MCUFrameData[10];
+				flag_LedON = BEGIN;
+				tLedCount = 0;
+			}
+			NewData_Uart1 = FALSE;
+		}
+		
+		
+		if(NewData_Uart2)    //串口2有新数据到来
+		{
+			if(MonitorProtocolCheck(rxUart2, MonitorFrameData) == VALID)    //对监控主机的数据进行帧校验    
 			{
 				CheckCorrect = TRUE;
 				DealMonitorFrameData(MonitorFrameData);    //开始处理数据
 			}
-			NewData_Uart1 = FALSE;
+			NewData_Uart2 = FALSE;
 			CheckCorrect = FALSE;			
 		}			
 		Led_Display(ledType);    //点亮LED
@@ -94,7 +108,7 @@ int main(void)
 }
 
 /**********************************************************************************************
-* 功能说明：串口0中断接收函数, 与CPU1或CPU4进行通讯
+* 功能说明：串口0中断接收函数, 与CPU4进行通讯
 * 输入参数：void
 * 返 回 值 ：void
 **********************************************************************************************/
@@ -125,34 +139,65 @@ ISR(USART0_RX_vect)
 } 
 
 /**********************************************************************************************
-* 功能说明：串口1中断接收函数, 与监控主机进行通讯
+* 功能说明：串口1中断接收函数, 与CPU5进行通讯
 * 输入参数：void
 * 返 回 值 ：void
 **********************************************************************************************/
 ISR(USART1_RX_vect)
-{ 
-    volatile static uint8_t  temp, countRx, NinthData;
-    
+{
+	volatile static uint8_t temp, countRx, NinthData;
+	
 	NinthData = (UCSR1B & (1<<RXB81));    //提取第9位数据，即RXB8的值
-	temp = UDR1;    //若是先接收缓存数据，会改变UCSR1A和UCSR1B的值，因此在接收之前先保存好寄存器的值 
-		
+	temp = UDR1;    //若是先接收缓存数据，会改变UCSR1A和UCSR1B的值，因此在接收之前先保存好寄存器的值
+	
 	if((NinthData != 0) && (temp == 0x9B))    //数据是地址且为0x9B, 开始响应
 	{
 		UCSR1A&=~(1<<MPCM1);    //清零MPCM开始接收数据
 		countRx = 0;
-		rxUart1[countRx++] = temp;    //为了后面方便起见，将地址也存入数组中
+		return;
+	}
+	
+	if(NinthData == 0)    //如果是数据
+	{
+		rxUart1[countRx++] = temp;
+	}
+	
+	if(countRx == 17)    //一个完整的数据帧是17个字节
+	{
+		UCSR1A |= (1<<MPCM1);    //读取最后一个数据，置位MPCM等待下次被寻址
+		NewData_Uart1 = TRUE;
+	}
+}
+
+/**********************************************************************************************
+* 功能说明：串口2中断接收函数, 与监控主机进行通讯
+* 输入参数：void
+* 返 回 值 ：void
+**********************************************************************************************/
+ISR(USART2_RX_vect)
+{ 
+    volatile static uint8_t  temp, countRx, NinthData;
+    
+	NinthData = (UCSR2B & (1<<RXB82));    //提取第9位数据，即RXB8的值
+	temp = UDR2;    //若是先接收缓存数据，会改变UCSR1A和UCSR1B的值，因此在接收之前先保存好寄存器的值 
+		
+	if((NinthData != 0) && (temp == 0x9B))    //数据是地址且为0x9B, 开始响应
+	{
+		UCSR2A&=~(1<<MPCM2);    //清零MPCM开始接收数据
+		countRx = 0;
+		rxUart2[countRx++] = temp;    //为了后面方便起见，将地址也存入数组中
 		return;
 	}
 		
 	if(NinthData == 0)    //如果是数据
 	{
-		rxUart1[countRx++] = temp;
+		rxUart2[countRx++] = temp;
 	}
 		
 	if(countRx == 17)
 	{
-		UCSR1A |= (1<<MPCM1);    //读取最后一个数据，置位MPCM等待下次被寻址
-		NewData_Uart1 = TRUE;
+		UCSR2A |= (1<<MPCM2);    //读取最后一个数据，置位MPCM等待下次被寻址
+		NewData_Uart2 = TRUE;
 	}
 }
 
@@ -198,6 +243,7 @@ void SystemInit(void)
     GPIO_Init();
 	USART0_Init(115200,1);    //串口0初始化，波特率：115200，工作方式：MPCM
 	USART1_Init(115200,1);    //串口1初始化，波特率：115200，工作方式：MPCM
+	USART2_Init(9600,1);
 	Timer3_Init();    //定时器3初始化，每2ms进入一次中断
 	sei();
 }
@@ -342,7 +388,7 @@ void DealMonitorFrameData(uint8_t* pMonitorFrameData)
 	Prepare_Transmit(TransmitToMonitor, MCUFrameData);     //按照监控主机的数据帧格式将要发送的数据放在TransmitToMonitor中
 	PORTE |= (1<<3);    //串口转485模块配置为发送状态
 	_delay_ms(1);
-	MPCM_USART1_TransmitMonitorFrame(TransmitToMonitor);   //发送给监控主机
+	MPCM_USART2_TransmitMonitorFrame(TransmitToMonitor);   //发送给监控主机
 	PORTE &= ~(1<<3);    //串口转485模块配置为接收状态
 	_delay_ms(1);
 }
