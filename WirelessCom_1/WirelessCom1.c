@@ -63,27 +63,27 @@ void(*reset)(void)=0x0000;    //软复位，程序重新从头执行
 **********************************************************************************************/
 int main(void)
 {
-	const char *stationcode = "014469014469\r\n";    //车站代码
+	//const char *stationcode = "014469014469\r\n";    //车站代码
 	
 	SystemInit();   //EEPROM_Successive_Write(0x0000,0x02);    //将EEPROM前500个字节填充成0x02
 
-	DTU_Configuration();
-	_delay_ms(100);
-
-	if(failue)  //配置失败，程序重新开始
-	{
-		failue=0;
-		reset();
-	}
+	//DTU_Configuration();
+	//_delay_ms(100);
+//
+	//if(failue)  //配置失败，程序重新开始
+	//{
+		//failue=0;
+		//reset();
+	//}
 	
-	while((strstr(rxUart2, "OK") == NULL))
-	{
-		USART2_TransmitString(stationcode);  //DTU先传送车站代码
-		_delay_ms(1000);
-	}
-	USART2_TransmitString("OK\r\n");  //DTU回复OK
-	memset(rxUart2, '\0', sizeof(rxUart2));
-	countRx2=0;
+	//while((strstr(rxUart2, "OK") == NULL))
+	//{
+		//USART2_TransmitString(stationcode);  //DTU先传送车站代码
+		//_delay_ms(1000);
+	//}
+	//USART2_TransmitString("OK\r\n");  //DTU回复OK
+	//memset(rxUart2, '\0', sizeof(rxUart2));
+	//countRx2=0;
 	
 	while(1)
 	{
@@ -143,30 +143,40 @@ int main(void)
 * 输入参数：void
 * 返 回 值 ：void
 **********************************************************************************************/
+//ISR(USART0_RX_vect)
+//{
+	//volatile static uint8_t temp, countRx, NinthData;
+	//
+	//NinthData = (UCSR0B & (1<<RXB80));    //提取第9位数据，即RXB8的值
+	//temp = UDR0;    //若是先接收缓存数据，会改变UCSR1A和UCSR1B的值，因此在接收之前先保存好寄存器的值
+	//
+	//if((NinthData != 0) && (temp == 0xC1))    //数据是地址且为0xC1, 开始响应
+	//{
+		//UCSR0A&=~(1<<MPCM0);    //清零MPCM开始接收数据
+		//countRx = 0;
+		//return;
+	//}
+	//
+	//if(NinthData == 0)    //如果是数据
+	//{
+		//rxUart0[countRx++] = temp;
+	//}
+	//
+	//if(countRx == 17)    //一个完整的数据帧是17个字节
+	//{
+		//UCSR0A |= (1<<MPCM0);    //读取最后一个数据，置位MPCM等待下次被寻址
+		//flag_NewData = TRUE;
+	//}
+//}
 ISR(USART0_RX_vect)
 {
-	volatile static uint8_t temp, countRx, NinthData;
+	volatile static uint8_t temp, countRx;
 	
-	NinthData = (UCSR0B & (1<<RXB80));    //提取第9位数据，即RXB8的值
-	temp = UDR0;    //若是先接收缓存数据，会改变UCSR1A和UCSR1B的值，因此在接收之前先保存好寄存器的值
-	
-	if((NinthData != 0) && (temp == 0xC1))    //数据是地址且为0xC1, 开始响应
+	if((countRx == 0) && (temp == 0xC1)) 
 	{
-		UCSR0A&=~(1<<MPCM0);    //清零MPCM开始接收数据
-		countRx = 0;
-		return;
+		
 	}
-	
-	if(NinthData == 0)    //如果是数据
-	{
-		rxUart0[countRx++] = temp;
-	}
-	
-	if(countRx == 17)    //一个完整的数据帧是17个字节
-	{
-		UCSR0A |= (1<<MPCM0);    //读取最后一个数据，置位MPCM等待下次被寻址
-		flag_NewData = TRUE;
-	}
+	rxUart0[countRx++] = temp;
 }
 
 /**********************************************************************************************
@@ -385,7 +395,7 @@ void Led_Slake(void)
 void SystemInit(void)
 {
 	DDRA=0xff;
-	USART0_Init(115200,1);
+	USART0_Init(115200,0);
 	USART1_Init(115200,1);
 	USART2_Init(115200);
 	Timer3_Init();

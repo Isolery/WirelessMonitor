@@ -222,7 +222,7 @@ void USART1_TransmitByte(uint8_t data)
 * 输入参数：cString --> 发送的字符串
 * 返 回 值 ：void
 **********************************************************************************************/
-void USART1_TransmitString(const uint8_t* cString)
+void USART1_TransmitString(uint8_t* cString)
 {
 	 for(; *cString!='\0'; )
 	 {

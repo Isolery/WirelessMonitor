@@ -54,8 +54,9 @@ uint8_t storeFdirYGD2[13];            //存储正向预告点2
 uint8_t storeRedirDD[13];             //存储反向定点                         
 uint8_t storeLastportdata[13];       //存储上次上报的定点数据     
 
-uint8_t test[] = {0xAA, 0x11, 0x0C, 0xBB, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x02, 0x52, 0x32, 0x44, 0x02, 0x53, 0xE5, 0x2D};   
+uint8_t cmdArray[] = {0xC0, 0x00, 0x06, 0x00, 0x00, 0x00, 0x60, 0x00, 0x16};    //E22Moudle配置参数
 
+uint8_t test[] = {0xAA, 0x11, 0x0C, 0xBB, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x02, 0x52, 0x32, 0x44, 0x02, 0x53, 0xE5, 0x2D};   
 
 /*函数声明区*/
 void Led_Slake(void);
@@ -68,7 +69,7 @@ uint8_t DecodeProtocol(const uint8_t* p_rxUart0, uint8_t* p_EpcData);
 void FrameProcess(uint8_t* dstArray, const uint8_t* srcArray, uint8_t type, uint8_t len);
 void check_preportdata(uint8_t* p_EpcData, uint8_t* p_storeRedirDD, uint8_t* p_storeFdirYGD, uint8_t* p_storeFdirYGD2);
 uint8_t check_portdata(uint8_t* p_EpcData, uint8_t* p_storeFdirYGD, uint8_t* p_storeFdirYGD2, uint8_t* p_storeRedirDD, uint8_t* p_storeLastportdata);
-
+void E22Module_Confuguration(void);
 
 /**********************************************************************************************
 * 函 数 名  ：main
@@ -79,9 +80,12 @@ uint8_t check_portdata(uint8_t* p_EpcData, uint8_t* p_storeFdirYGD, uint8_t* p_s
 int main(void)
 {
 	SystemInit(); 
+	E22Module_Confuguration();
 	
 	while(1)
 	{
+		//USART1_TransmitString("Hello World!\n");
+		//_delay_ms(100);
 		if(flag_RxFinish)    //串口0有新数据到来
 		{
 			UART0_DEN;
@@ -287,6 +291,10 @@ void RuleCheck(const uint8_t* p_EpcData)
 		{
 			FrameProcess(FrameData, EpcData, 0x11, sizeof(EpcData));       
 			MPCM_USART1_TransmitFrame(FrameData, 0xC1);    //发送给WirelessCom_1 --> 通信板第一个CPU
+			_delay_ms(1);
+			MPCM_USART1_TransmitFrame(FrameData, 0xC1); 
+			_delay_ms(1);
+			MPCM_USART1_TransmitFrame(FrameData, 0xC1);    //发送3次
 		}
 	}
 }
@@ -514,12 +522,28 @@ void SystemInit(void)
 {
     DDRA=0xff;
 	PORTA=0x08;    //开始亮绿灯
-	DDRD &=~((1<<0)|(1<<1)); PORTD |= (1<<0)|(1<<1);
+	DDRD |= (1<<0); PORTD &= ~(1<<0);    //切换Model0和Model1
 	USART0_Init(115200,0);
-	USART1_Init(115200,1);
+	USART1_Init(9600,0);
 	Timer3_Init();
 	//SEI();    //该语句在studio6.2中不被识别
 	sei();
+}
+
+/********************************************************************************************************************
+* 函 数 名 ：E22Module_Confuguration
+* 功能说明：E22模块参数配置（模块地址 = 0 | 网络地址 = 0 | 115200 8N1 | 空中速率 = 2.4k | 信道 = 0x17）
+* 输入参数：void
+* 返 回 值 ：void
+********************************************************************************************************************/
+void E22Module_Confuguration(void)
+{
+	PORTD |= (1<<0);    //Model 1
+	_delay_ms(100);
+	USART1_TransmitArray(cmdArray, 9);    //发送指令
+	_delay_ms(10);
+	PORTD &= ~(1<<0);    //Model 0
+	_delay_ms(10);
 }
 
 /************************************************************************************************
